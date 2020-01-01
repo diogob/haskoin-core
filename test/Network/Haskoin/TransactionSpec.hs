@@ -236,10 +236,10 @@ testDetSignTx net  (tx, sigis, prv) =
     not (verifyStdTx net txSigP verData) && verifyStdTx net txSigC verData
   where
     txSigP =
-        fromRight (error "Could not decode transaction") $
+        either (error . mappend "Could not decode transaction: ") id $
         signTx net tx sigis (map secKeyData (tail prv))
     txSigC =
-        fromRight (error "Could not decode transaction") $
+        either (error . mappend "Could not decode transaction: ") id $
         signTx net txSigP sigis [secKeyData (head prv)]
     verData = map (\(SigInput s v o _ _) -> (s, v, o)) sigis
 
