@@ -323,6 +323,10 @@ makeSignature net tx i (SigInput so val _ sh rdmM) key =
 
 -- | Sign a single input in a transaction deterministically (RFC-6979).
 signInput :: Network -> Tx -> Int -> SigInput -> SecKeyI -> Either String Tx
+-- for PayWitnessPKHash we don't need a scriptInput in TxIn
+signInput net tx i sigIn@(SigInput (PayWitnessPKHash _) val _ sh rdmM) key = do
+    let sig = makeSignature net tx i sigIn key
+    return $ Tx (txVersion tx) (txIn tx) (txOut tx) [["0", "0"]] (txLockTime tx)
 signInput net tx i sigIn@(SigInput so val _ sh rdmM) key = do
     let sig = makeSignature net tx i sigIn key
     si <- buildInput net tx i so val rdmM sig $ derivePubKeyI key
@@ -353,14 +357,17 @@ sigKeys so rdmM keys =
     case (so, rdmM) of
         (PayPK p, Nothing) ->
             return . map fst . maybeToList $ find ((== p) . snd) zipKeys
-        (PayPKHash h, Nothing) ->
-            return . map fst . maybeToList $
-            find ((== h) . getAddrHash160 . pubKeyAddr . snd) zipKeys
+        (PayPKHash h, Nothing) -> findKeyForHash h
+        (PayWitnessPKHash h, Nothing) -> findKeyForHash h
         (PayMulSig ps r, Nothing) ->
             return $ map fst $ take r $ filter ((`elem` ps) . snd) zipKeys
         (PayScriptHash _, Just rdm) -> sigKeys rdm Nothing keys
+
         _ -> Left "sigKeys: Could not decode output script"
   where
+    findKeyForHash h = 
+        return . map fst . maybeToList $
+        find ((== h) . getAddrHash160 . pubKeyAddr . snd) zipKeys
     zipKeys =
         [ (prv, pub)
         | k <- keys
@@ -487,8 +494,8 @@ verifyStdInput net tx i = go (scriptInput $ txIn tx !! i)
   where
     dec = decodeInputBS net
     go inp so val =
-        case dec inp of
-            Right (RegularInput (SpendPK (TxSignature sig sh))) ->
+        case (dec inp, txWitness tx) of
+            (Right (RegularInput (SpendPK (TxSignature sig sh))), _) ->
                 case so of
                     PayPK pub ->
                         verifyHashSig
@@ -496,7 +503,7 @@ verifyStdInput net tx i = go (scriptInput $ txIn tx !! i)
                             sig
                             (pubKeyPoint pub)
                     _ -> False
-            Right (RegularInput (SpendPKHash (TxSignature sig sh) pub)) ->
+            (Right (RegularInput (SpendPKHash (TxSignature sig sh) pub)), _) ->
                 case so of
                     PayPKHash h ->
                         pubKeyAddr pub == p2pkhAddr h &&
@@ -505,18 +512,31 @@ verifyStdInput net tx i = go (scriptInput $ txIn tx !! i)
                             sig
                             (pubKeyPoint pub)
                     _ -> False
-            Right (RegularInput (SpendMulSig sigs)) ->
+            (Right (RegularInput (SpendMulSig sigs)), _) ->
                 case so of
                     PayMulSig pubs r ->
                         countMulSig net tx out val i (map pubKeyPoint pubs) sigs ==
                         r
                     _ -> False
-            Right (ScriptHashInput si rdm) ->
+            (Right (ScriptHashInput si rdm), _) ->
                 case so of
                     PayScriptHash h ->
                         payToScriptAddress rdm == p2shAddr h &&
                         go (encodeInputBS $ RegularInput si) rdm val
                     _ -> False
+            (Left _, witnesses) ->
+                length witnesses >= i && False
+            --     && case so of
+            --         PayWitnessPKHash h -> False 
+            --             && verifyHashSig
+            --                 (txSigHash net tx out val i sh)
+            --                 sig
+            --                 (pubKeyPoint pub)
+            --             where
+            --                 sh = undefined
+            --                 sig = undefined
+            --                 pub = undefined
+            --         _ -> False
             _ -> False
       where
         out = encodeOutput so

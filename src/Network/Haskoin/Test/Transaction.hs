@@ -134,24 +134,28 @@ arbitrarySigInput net =
     oneof
         [ arbitraryPKSigInput net >>= \(si, k) -> return (si, [k])
         , arbitraryPKHashSigInput  net >>= \(si, k) -> return (si, [k])
+        , arbitraryWPKHashSigInput  net >>= \(si, k) -> return (si, [k])
         , arbitraryMSSigInput net
         , arbitrarySHSigInput net
         ]
 
 -- | Arbitrary 'SigInput' with a 'ScriptOutput' of type 'PayPK'.
 arbitraryPKSigInput :: Network -> Gen (SigInput, SecKeyI)
-arbitraryPKSigInput net = arbitraryAnyInput net False
+arbitraryPKSigInput net = arbitraryAnyInput net PayPK
 
 -- | Arbitrary 'SigInput' with a 'ScriptOutput' of type 'PayPKHash'.
 arbitraryPKHashSigInput :: Network -> Gen (SigInput, SecKeyI)
-arbitraryPKHashSigInput net = arbitraryAnyInput net True
+arbitraryPKHashSigInput net = arbitraryAnyInput net (PayPKHash . getAddrHash160 . pubKeyAddr)
+
+-- | Arbitrary 'SigInput' with a 'ScriptOutput' of type 'PayWitnessPKHash'.
+arbitraryWPKHashSigInput :: Network -> Gen (SigInput, SecKeyI)
+arbitraryWPKHashSigInput net = arbitraryAnyInput net (PayWitnessPKHash . getAddrHash160 . pubKeyAddr)
 
 -- | Arbitrary 'SigInput'.
-arbitraryAnyInput :: Network -> Bool -> Gen (SigInput, SecKeyI)
-arbitraryAnyInput net pkh = do
+arbitraryAnyInput :: Network -> (PubKeyI -> ScriptOutput) -> Gen (SigInput, SecKeyI)
+arbitraryAnyInput net pubKeyToSO = do
     (k, p) <- arbitraryKeyPair
-    let out | pkh = PayPKHash $ getAddrHash160 $ pubKeyAddr p
-            | otherwise = PayPK p
+    let out = pubKeyToSO p
     (val, op, sh) <- arbitraryInputStuff net
     return (SigInput out val op sh Nothing, k)
 

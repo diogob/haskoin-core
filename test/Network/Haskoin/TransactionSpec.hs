@@ -232,8 +232,9 @@ testChooseMSCoins (m, n) coins target byteFee nOut = nOut >= 0 ==>
 
 testDetSignTx :: Network -> (Tx, [SigInput], [SecKeyI]) -> Bool
 testDetSignTx net  (tx, sigis, prv) =
-    not (verifyStdTx net tx verData) &&
-    not (verifyStdTx net txSigP verData) && verifyStdTx net txSigC verData
+    not (verifyStdTx net tx verData)
+    && not (verifyStdTx net txSigP verData) 
+    && verifyStdTx net txSigC verData
   where
     txSigP =
         either (error . mappend "Could not decode transaction: ") id $
